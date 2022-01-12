@@ -34,6 +34,7 @@ import sys
 import json
 import argparse
 from urllib.request import Request, urlopen
+from urllib.parse import urlencode
 from urllib.error import URLError, HTTPError
 
 
@@ -76,6 +77,39 @@ Return value:
         print('Reason: ', err.reason)
 
 
+def is_include_branch(from_branch, to_branch):
+    """ Checks for entry branches.
+
+Args:
+    'source_branch': The source branch.
+    'target_branch': The target branch.
+
+The function uses the system variables:
+    GITLAB_HOST_PROJECT - URL-encoded path of the GitLab project
+    GITLAB_API_ACCESS_KEY - Private user toke
+
+Return value:
+     true/false - Diffs can have an empty diff string if diff limits are reached.
+    """
+
+    params = urlencode({'from': from_branch, 'to': to_branch})
+    req = Request('%s/repository/compare?%s' % (_service_host_project(), params), method='GET')
+    req.add_header('PRIVATE-TOKEN', _service_access_key())
+    try:
+        result = urlopen(req)
+        if result.code == 200:
+            json_data = json.loads(result.read())
+            return json_data['commit'] is None
+        else:
+            print("Error receiving data", result.getcode())
+    except HTTPError as err:
+        print('Error. Response code: ', err.code)
+    except URLError as err:
+        print('Error. We failed to reach a server:')
+        print(err.reason)
+    sys.exit(1)
+
+
 def _service_host_project():
     # Returns the host project passed through the system variable,
     # if it is absent, returns the default value.
@@ -106,6 +140,7 @@ Return value:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('-h', '--help', action='store_true')
     parser.add_argument('--merge_request', nargs='*')
+    parser.add_argument('--isIncludeBranch', nargs='*')
     parser.usage = use_as_os_command.__doc__
 
     args = parser.parse_args()
@@ -132,6 +167,25 @@ Return value:
         if merge_request(params.get(0), params.get(1), params.get(2)) != 0:
             print('''Merge request not created.''')
             sys.exit(1)
+
+    elif args.isIncludeBranch is not None:
+        params = dict(enumerate(args.isIncludeBranch))
+
+        if params.get(0) is None:
+            print('''<from_branch> isn't specified''')
+            print('usage: ' + is_include_branch.__doc__)
+            sys.exit(2)
+
+        if params.get(1) is None:
+            print('''<to_branch> isn't specified''')
+            print('usage: ' + is_include_branch.__doc__)
+            sys.exit(2)
+
+        if not is_include_branch(params.get(0), params.get(1)):
+            print('''Changes from %s branch the not included to %s branch.'''
+                  % (params.get(1), params.get(0)))
+            sys.exit(1)
+
     else:
         print('usage: ' + use_as_os_command.__doc__)
         sys.exit(0)
